@@ -5,86 +5,86 @@
 
 # Packages ----
 
-library(datasauRus)
+library(embed)
 library(tidyverse)
 library(tidymodels)
 tidymodels_prefer()
 
 # Explore data ----
 
-datasaurus_dozen
+unvotes <- read_csv("https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2021/2021-03-23/unvotes.csv")
+issues <- read_csv("https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2021/2021-03-23/issues.csv")
 
-datasaurus_dozen |> 
-  ggplot(aes(x, y, color = dataset)) +
-  geom_point(alpha = 0.8, show.legend = FALSE) +
-  facet_wrap(~dataset, ncol = 5)
+unvotes
+issues
 
-datasaurus_dozen |> 
-  summarise(across(c(x, y), list(mean = mean, sd = sd)),
-            x_y_cor = cor(x, y),
-            .by = dataset)
+unvotes_df <- unvotes |> 
+  select(country, rcid, vote) |> 
+  mutate(vote = factor(vote, levels = c("no", "abstain", "yes")),
+         vote = as.numeric(vote),
+         rcid = paste0("rcid_", rcid)) |> 
+  pivot_wider(names_from = rcid, 
+              values_from = vote,
+              values_fill = 2)
 
-datasaurus_dozen |> 
-  count(dataset)
+glimpse(unvotes_df)
 
-# Build a model ----
+# Principal Component Analysis ----
 
-dino_folds <- datasaurus_dozen |> 
-  mutate(dataset = factor(dataset)) |> 
-  bootstraps()
+pca_rec <- recipe(~ ., data = unvotes_df) |> 
+  update_role(country, new_role = "id") |> 
+  step_normalize(all_predictors()) |> 
+  step_pca(all_predictors())
 
-dino_folds
+pca_rec
 
-rf_spec <- rand_forest(trees = 1000) |> 
-  set_mode("classification") |> 
-  set_engine("ranger")
+pca_prep <- prep(pca_rec)
 
-dino_wf <- workflow() |> 
-  add_model(rf_spec) |> 
-  add_formula(dataset ~ x + y)
+pca_prep
 
-dino_wf
+bake(pca_prep, new_data = NULL)
 
-doParallel::registerDoParallel()
-dino_rs <- fit_resamples(
-  dino_wf,
-  resamples = dino_folds,
-  control = control_resamples(save_pred = TRUE)
-)
+bake(pca_prep, new_data = NULL) |> 
+  ggplot(aes(PC1, PC2, label = country)) +
+  geom_point(color = "midnightblue", alhpa = 0.7, size = 2) +
+  geom_text(check_overlap = TRUE, hjust = "inward")
 
-dino_rs
+tidy(pca_prep, 1)
 
-# Evaluate model ----
+pca_comps <- tidy(pca_prep, 2) |> 
+  filter(component %in% paste0("PC", 1:4)) |> 
+  left_join(issues |> mutate(terms = paste0("rcid_", rcid))) |> 
+  filter(!is.na(issue)) |> 
+  group_by(component) |> 
+  slice_max(abs(value), n = 8) |> 
+  ungroup()
 
-collect_metrics(dino_rs)
+pca_comps |> 
+  mutate(value = abs(value)) |> 
+  ggplot(aes(value, terms, fill = issue)) +
+  geom_col(position = "dodge") +
+  facet_wrap(~ component, scales = "free_y") +
+  labs(y = NULL, fill = NULL,
+       x = "Absolute value of contribution")
 
-dino_rs |> 
-  collect_predictions() |> 
-  group_by(id) |> 
-  ppv(truth = dataset, estimate = .pred_class)
+# UMAP ----
 
-dino_rs |> 
-  collect_predictions() |> 
-  group_by(id) |> 
-  roc_curve(truth = dataset, .pred_away:.pred_x_shape) |> 
-  autoplot()
+umap_rec <- recipe(~ ., data = unvotes_df) |> 
+  update_role(country, new_role = "id") |> 
+  step_normalize(all_predictors()) |> 
+  step_umap(all_predictors())
 
-dino_rs |> 
-  collect_predictions() |> 
-  conf_mat(dataset, .pred_class)
+umap_rec
 
-dino_rs |> 
-  collect_predictions() |> 
-  conf_mat(dataset, .pred_class) |> 
-  autoplot(type = "heatmap")
+umap_prep <- prep(umap_rec)
 
-dino_rs |> 
-  collect_predictions() |> 
-  filter(.pred_class != dataset) |> 
-  conf_mat(dataset, .pred_class) |> 
-  autoplot(type = "heatmap")
+umap_prep
 
+bake(umap_prep, new_data = NULL)
 
-
+bake(umap_prep, new_data = NULL) |> 
+  ggplot(aes(UMAP1, UMAP2, label = country)) +
+  geom_point(color = "midnightblue", alpha = 0.7, size = 2) +
+  geom_text(check_overlap = TRUE, hjust = "inward")
 
 
