@@ -84,7 +84,40 @@ schools_result |>
 
 # Trying another model ----
 
+prior_dist <- student_t(df = 2)
+
 stan_fit <- logistic_reg() |> 
   set_engine("stan", 
-             prior, prior_intercept) |> 
+             prior = prior_dist, 
+             prior_intercept = prior_dist) |> 
   fit(mmr_threshold ~ state, data = measles_df)
+
+
+bayes_pred <- predict(stan_fit, 
+                      new_data = new_schools,
+                      type = "prob")
+
+bayes_int <- predict(stan_fit,
+                     new_data = new_schools,
+                     type = "conf_int")
+
+bayes_result <- new_schools |> 
+  bind_cols(bayes_pred) |> 
+  bind_cols(bayes_int)
+
+bayes_result
+
+schools_result |> 
+  mutate(model = "glm") |> 
+  bind_rows(
+    bayes_result |> 
+      mutate(model = "stan")
+  ) |> 
+  mutate(state = fct_reorder(state, .pred_Above)) |> 
+  ggplot(aes(state, .pred_Above, color = model)) +
+  geom_point(size = 4) +
+  geom_errorbar(aes(ymin = .pred_lower_Above,
+                    ymax = .pred_upper_Above),
+                linewidth = 1.5, alpha = 0.7) +
+  scale_y_continuous(labels = scales::percent_format()) +
+  coord_flip()
