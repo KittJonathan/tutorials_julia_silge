@@ -9,6 +9,7 @@ library(tidyverse)
 library(tidymodels)
 library(countrycode)
 library(janitor)
+library(GGally)
 
 theme_set(theme_bw())
 
@@ -18,7 +19,11 @@ food_consumption <- read_csv(
   "https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2020/2020-02-18/food_consumption.csv"
   )
 
-food_consumption |> 
+# Explore data ----
+
+# Model to predict if a country is in Asia based on the food consumption pattern.
+
+food <- food_consumption |> 
   mutate(continent = countrycode(country,
                                  origin = "country.name",
                                  destination = "continent")) |> 
@@ -27,11 +32,17 @@ food_consumption |>
     names_from = food_category,
     values_from = consumption
   ) |> 
-  clean_names()
+  clean_names() |> 
+  mutate(
+    asia = case_when(continent == "Asia" ~ "Asia",
+                     .default = "Other"),
+    .keep = "unused", .before = everything()
+  ) |> 
+  select(-country) |> 
+  mutate(across(where(is.character), factor))
 
+ggscatmat(food, columns = -1, color = "asia", alpha = 0.6)
 
-
-# Explore data ----
 
 
 # Build models with recipes ----
