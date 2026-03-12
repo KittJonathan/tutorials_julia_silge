@@ -6,67 +6,85 @@
 
 library(tidyverse)
 library(tidymodels)
-library(countrycode)
-library(janitor)
-library(GGally)
+library(skimr)
+library(rstanarm)
 
-theme_set(theme_bw())
+options(mc.cores = parallel::detectCores())
 
-# Data ----
+# Explore Data ----
 
-food_consumption <- read_csv(
-  "https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2020/2020-02-18/food_consumption.csv"
-  )
+measles <- read_csv("https://raw.githubusercontent.com/rfordatascience/tidytuesday/main/data/2020/2020-02-25/measles.csv")
 
-# Explore data ----
+measles_df <- measles |> 
+  filter(mmr > 0) |> 
+  mutate(mmr_threshold = case_when(mmr > 95 ~ "Above",
+                                   .default = "Below"),
+         across(where(is.character), factor)) |> 
+  select(state, mmr_threshold)
 
-# Model to predict if a country is in Asia based on the food consumption pattern.
+measles_df
 
-food <- food_consumption |> 
-  mutate(continent = countrycode(country,
-                                 origin = "country.name",
-                                 destination = "continent")) |> 
-  select(!co2_emmission) |> 
-  pivot_wider(
-    names_from = food_category,
-    values_from = consumption
-  ) |> 
-  clean_names() |> 
-  mutate(
-    asia = case_when(continent == "Asia" ~ "Asia",
-                     .default = "Other"),
-    .keep = "unused", .before = everything()
-  ) |> 
-  select(-country) |> 
-  mutate(across(where(is.character), factor))
+measles_df |> 
+  count(state)
 
-ggscatmat(food, columns = -1, color = "asia", alpha = 0.6)
+skim(measles_df)
 
-# Tune hyperparameters ----
+measles_df |> 
+  summarise(mmr = mean(mmr_threshold == "Above"),
+            .by = state) |> 
+  mutate(state = fct_reorder(state, mmr)) |> 
+  ggplot(aes(state, mmr, fill = state)) +
+  geom_col(show.legend = FALSE) +
+  scale_y_continuous(labels = scales::percent_format()) +
+  coord_flip()
 
-set.seed(1234)
+# Getting started with tidymodels ----
 
-food_boot <- bootstraps(data = food, times = 30)
-food_boot
+glm_fit <- logistic_reg() |> 
+  set_engine("glm") |> 
+  fit(mmr_threshold ~ state, data = measles_df)
 
-rf_spec <- rand_forest(mode = "classification", 
-            mtry = tune(),
-            trees = 1000,
-            min_n = tune()) |> 
-  set_engine("ranger")
+glm_fit
 
-rf_spec
+tidy(glm_fit)
 
-rf_grid <- tune_grid(
-  rf_spec,
-  asia ~ ., 
-  resamples = food_boot
-)
+tidy(glm_fit) |> 
+  filter(p.value < 0.05)
 
-rf_grid
+new_schools <- tibble(
+  state = unique(measles_df$state))
 
-rf_grid |> 
-  collect_metrics()
+mean_pred <- predict(glm_fit, 
+                     new_data = new_schools,
+                     type = "prob")
 
-rf_grid |> 
-  show_best(metric = "roc_auc")
+mean_pred
+
+conf_int <- predict(glm_fit,
+                    new_data = new_schools,
+                    type = "conf_int")
+
+conf_int
+
+schools_result <- new_schools |> 
+  bind_cols(mean_pred) |> 
+  bind_cols(conf_int)
+
+schools_result
+
+schools_result |> 
+  mutate(state = fct_reorder(state, .pred_Above)) |> 
+  ggplot(aes(state, .pred_Above, fill = state)) +
+  geom_col(show.legend = FALSE) +
+  geom_errorbar(aes(ymin = .pred_lower_Above,
+                    ymax = .pred_upper_Above),
+                color = "gray30") +
+  scale_y_continuous(labels = scales::percent_format()) +
+  coord_flip()
+
+# Trying another model ----
+
+stan_fit <- logistic_reg() |> 
+  set_engine("stan", 
+             prior, prior_intercept) |> 
+  fit(mmr_threshold ~ state, data = measles_df)
