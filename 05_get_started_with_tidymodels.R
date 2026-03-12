@@ -1,7 +1,6 @@
-# Hyperparameter tuning using tidymodels
+# Get started with tidymodels using vaccination rate data
 # Julia Silge
-# https://juliasilge.com/blog/food-hyperparameter-tune/
-# https://www.youtube.com/watch?v=muf3-hrahHs
+# https://www.youtube.com/watch?v=E2Ld3QdXYZo
 
 # Packages ----
 
