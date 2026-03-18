@@ -11,6 +11,8 @@ tidymodels_prefer()
 
 theme_set(theme_bw())
 
+library(vip)
+
 # Explore data ----
 
 ratings_raw <- read_csv(
@@ -113,3 +115,59 @@ lasso_fit |>
   tidy()
 
 # Tune LASSO parameters ----
+
+set.seed(1234)
+office_boot <- bootstraps(office_train, strata = season)
+
+tune_spec <- linear_reg(penalty = tune(), mixture = 1) |> 
+  set_engine("glmnet")
+
+lambda_grid <- grid_regular(penalty(),
+                            levels = 50)
+
+doParallel::registerDoParallel()
+
+set.seed(2020)
+
+lasso_grid <- tune_grid(
+  wf |> add_model(tune_spec),
+  resamples = office_boot,
+  grid = lambda_grid
+)
+
+lasso_grid |> 
+  collect_metrics() |> 
+  ggplot(aes(penalty, mean, color = .metric)) +
+  geom_line(linewidth = 1.5, show.legend = FALSE) +
+  geom_errorbar(aes(ymin = mean - std_err,
+                    ymax = mean + std_err),
+                alpha = 0.5) +
+  scale_x_log10() +
+  facet_wrap(~.metric, scales = "free", nrow = 2) +
+  theme(legend.position = "none")
+
+lowest_rmse <- lasso_grid |> 
+  select_best(metric = "rmse")
+
+final_lasso <- finalize_workflow(
+  wf |> 
+    add_model(tune_spec),
+  lowest_rmse
+)
+
+final_lasso |> 
+  fit(office_train) |> 
+  pull_workflow_fit() |> 
+  vip::vi(lambda = lowest_rmse$penalty) |> 
+  mutate(Importance = abs(Importance),
+         Variable = fct_reorder(Variable, Importance)) |> 
+  ggplot(aes(x = Importance, y = Variable,
+             fill = Sign)) +
+  geom_col() +
+  scale_x_continuous(expand = c(0, 0)) +
+  labs(y = NULL)
+
+last_fit(final_lasso,
+         office_split) |> 
+  collect_metrics()
+
