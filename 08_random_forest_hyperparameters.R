@@ -138,4 +138,37 @@ tune_res <- tune_grid(
   grid = 20
 )
 
+tune_res
+
+tune_res |> 
+  collect_metrics()
+
+tune_res |> 
+  select_best(metric = "accuracy")
+
+tune_res |> 
+  collect_metrics() |> 
+  filter(.metric == "roc_auc") |> 
+  select(mean, min_n, mtry) |> 
+  pivot_longer(min_n:mtry, values_to = "value", names_to = "parameter") |> 
+  ggplot(aes(value, mean, color = parameter)) +
+  geom_point(show.legend = FALSE) +
+  facet_wrap(~parameter, scales = "free_x")
+
+# Tune again
+rf_grid <- grid_regular(
+  mtry(range = c(10, 40)),
+  min_n(range = c(2, 8)),
+  levels = 5
+)
+
+set.seed(456)
+regular_res <- tune_res <- tune_grid(
+  tune_wf,
+  resamples = trees_folds,
+  grid = rf_grid
+)
+
+
+
 
